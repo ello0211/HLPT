@@ -1,0 +1,11 @@
+python finetune.py \
+  --base_model 'yahma/llama-7b-hf' \
+  --data_path 'math_data.json' \
+  --output_dir './trained_models/llama-hybrid-14' \
+  --batch_size 16 \
+  --micro_batch_size 4 \
+  --num_epochs 3 \
+  --learning_rate 3e-3 \
+  --cutoff_len 256 \
+  --val_set_size 120 \
+  --adapter_name hybrid
