@@ -46,4 +46,4 @@ To evaluate the performance of the finetuned model on the six Arithmetic Reasoni
 
 ## Acknowledgement
 
-This repo benefits from LLM-Adapters(https://github.com/AGI-Edgerunners/LLM-Adapters). Thanks for the wonderful works. 
+This repo largely benefits from LLM-Adapters(https://github.com/AGI-Edgerunners/LLM-Adapters). Thanks for the wonderful work. 
