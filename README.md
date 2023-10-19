@@ -16,7 +16,7 @@ limitations under the License.
 
 
 <h3 align="center">
-    <p>HLPT: Hybrid LoRA-Prefix Tuning </p>
+    <t>HLPT: Hybrid LoRA-Prefix Tuning </t>
 </h3>
 The method optimally combines both LoRA and Prefix-Tuning to address the varying needs of different layers. HLPT offers performance improvements while being efficient, with results indicating faster model convergence and reduced training resources. This approach demonstrates robustness and general applicability across different datasets and models, showing potential for training efficiency and parameter reduction in large language models.
 
@@ -31,15 +31,16 @@ cd peft/
 pip install -e .
 ```
 
-Due to the modifications required by our method, please replace the "modeling_llama.py" file under '~/transformers/models/llama' and the "modeling_gptj.py" file under '~/transformers/models/gptj' with the files we provide.
+Due to the modifications required by our method, please replace the "modeling_llama.py" file under '/transformers/models/llama' and the "modeling_gptj.py" file under '/transformers/models/gptj' with the files we provide.
 
 You can directly use the HLPT method with the code we provide.To use H2LPT method,You can modify the code by following the comments in "peft/src/peft/tuners/lora.py" and "modeling_llama.py/modeling_gptj.py"
-## Training(finetune.py)
+## Training
 
 This file contains some code related to prompt construction and tokenization.In this file, specify different adapters and different sets of data, so that different models can be trained. 
-You can use'bash finetune.sh' to train the model with HLPT method
 
-## Evaluation (evaluate.py)
+You can use 'bash finetune.sh' to train the model with HLPT method
+
+## Evaluation
 
 To evaluate the performance of the finetuned model on the six Arithmetic Reasoning tasks, you can use 'python multi_dataset_eval.py':
 
