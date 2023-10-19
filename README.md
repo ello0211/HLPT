@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-<h1 align="center"> 
+<!-- <h1 align="center"> 
 <img src="picture.jpg" width="73" height="114">
 <p> LLM-Adapters</p>
 </h1>
@@ -41,7 +41,7 @@ Supported Adapters:
 * [2023-07-16] we released commonsense170k dataset and the  The LLaMA-13B-Parallel model outformances ChatGPT on 8 commonsense benchmarks.
 * [2023-04-21] We released math10k dataset and the [LLaMA-13B adapter checkpoints](https://drive.google.com/file/d/1NqUv-Hn_mAkGXsUOqpJKmPKW5Gp8mRlO/view?usp=sharing). The LLaMA-13B-Parallel model achieves **91%** of GPT-3.5 performance!
 * [2023-04-10] We can support GPT-Neo and ChatGLM now!
-* [2023-04-04] [Release code and dataset](https://github.com/AGI-Edgerunners/LLM-Adapters)
+* [2023-04-04] [Release code and dataset](https://github.com/AGI-Edgerunners/LLM-Adapters) -->
 
 ## Setup
 
