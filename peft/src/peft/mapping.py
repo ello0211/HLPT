@@ -185,7 +185,7 @@ def get_peft_model(model, peft_config):
     """
 
     model_config = model.config.to_dict()
-    peft_config.base_model_name_or_path = model.__dict__.get("name_or_path", None)  # 获得model对应的名字
+    peft_config.base_model_name_or_path = model.__dict__.get("name_or_path", None)
     if peft_config.task_type not in MODEL_TYPE_TO_PEFT_MODEL_MAPPING.keys():
         if peft_config.peft_type == "LORA":
             peft_config = _prepare_lora_config(peft_config, model_config)
@@ -197,12 +197,9 @@ def get_peft_model(model, peft_config):
         if peft_config.peft_type == "BOTTLENECK":
             peft_config = _prepare_bottleneck_config(peft_config, model_config)
         elif peft_config.peft_type == "LORA":
-            peft_config = _prepare_lora_config(peft_config, model_config)  # lora,确定添加参数的位置为q_proj,v_proj
-            # peft_config = _prepare_prompt_learning_config(peft_config, model_config) # 修改3.2
-            # peft_config.target_modules = ["down_proj"] # 1.此处修改，添加的部分；
-    else:  # 修改1：如果要添加prefix的话，应该是要保留2个peft_config
-        # peft_config = _prepare_lora_config(peft_config, model_config) # 修改3.2
+            peft_config = _prepare_lora_config(peft_config, model_config)
+    else:
         peft_config = _prepare_prompt_learning_config(peft_config,
-                                                      model_config)  # prefix,确定注意力头、层数、token_dim  修改1：这里应该把层数也对应修改掉
-        peft_config.num_layers = 3  # 修改3（只针对prefix层数的修改）：这里将num_layers变成5，希望只加在前5层
-    return MODEL_TYPE_TO_PEFT_MODEL_MAPPING[peft_config.task_type](model, peft_config)  # 这里应该是区分了一下模型的类型，这里使用的是因果类型
+                                                      model_config)  # prefix
+        peft_config.num_layers = 3  # Modification for the number of layers in the prefix.
+    return MODEL_TYPE_TO_PEFT_MODEL_MAPPING[peft_config.task_type](model, peft_config)  # Distinguish the type of the model

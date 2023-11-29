@@ -126,7 +126,7 @@ def main(
         print(f'\rtest:{idx + 1}/{total} | accuracy {correct}  {correct / (idx + 1)}')
         with open(save_file, 'w+') as f:
             json.dump(output_data, f, indent=4)
-            json.dump(correct / (idx + 1), f, indent=4)  # 修改
+            json.dump(correct / (idx + 1), f, indent=4)
         pbar.update(1)
     pbar.close()
     print('\n')
@@ -170,7 +170,7 @@ def load_data(args) -> list:
     Returns:
 
     """
-    file_path = f'dataset/{args.dataset}/test.json'
+    file_path = f'dataset/{args.dataset}/test_20.json'
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"can not find dataset file : {file_path}")
     json_data = json.load(open(file_path, 'r'))

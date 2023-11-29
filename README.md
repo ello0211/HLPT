@@ -40,6 +40,10 @@ This file contains some code related to prompt construction and tokenization.In 
 
 You can use 'bash finetune.sh' to train the model with HLPT method
 
+## Update log
+
+11.29   | Mainly add more detailed comments to enhance readability.
+
 ## Evaluation
 
 To evaluate the performance of the finetuned model on the six Arithmetic Reasoning tasks, you can use 'python multi_dataset_eval.py':

@@ -106,7 +106,7 @@ class GPTJAttention(nn.Module):
             )
         self.scale_attn = torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32)).to(torch.get_default_dtype())
 
-        self.prefix_gate = nn.Linear(self.embed_dim, 1, bias=False)  # 修改5.2
+        self.prefix_gate = nn.Linear(self.embed_dim, 1, bias=False)  # Add gating units for the prefix. Note that this may slightly increase the number of trainable parameters when using the H2LPT method, but it does not affect the model's performance. This will be optimized later.
         self.k_proj = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
         self.v_proj = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
         self.q_proj = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
@@ -171,8 +171,8 @@ class GPTJAttention(nn.Module):
 
         if attention_mask is not None:
             # Apply the attention mask
-            if attn_weights.shape[-1] != attention_mask.shape[-1]: # 修改5
-                attention_mask = attention_mask[:,:,:,20:] # 修改5
+            if attn_weights.shape[-1] != attention_mask.shape[-1]: # To adapt to the hybrid method
+                attention_mask = attention_mask[:,:,:,20:] # To adapt to the hybrid method
             attn_weights = attn_weights + attention_mask
 
         attn_weights = nn.functional.softmax(attn_weights, dim=-1)
@@ -246,10 +246,10 @@ class GPTJAttention(nn.Module):
         query = query.permute(0, 2, 1, 3)
 
         if layer_past is not None:
-            self.prefix_gate = self.prefix_gate.float()  # 修改5.2
-            gate = torch.mean(torch.sigmoid(self.prefix_gate(hidden_states.to(self.prefix_gate.weight.dtype))),dim=1).view(-1, 1, 1, 1)  # 修改5.2
-            past_key = layer_past[0] * gate.half() # 修改5.2
-            past_value = layer_past[1] * gate.half()  # 修改5.2
+            self.prefix_gate = self.prefix_gate.float()  # compute the gate
+            gate = torch.mean(torch.sigmoid(self.prefix_gate(hidden_states.to(self.prefix_gate.weight.dtype))),dim=1).view(-1, 1, 1, 1)
+            past_key = layer_past[0] * gate.half()
+            past_value = layer_past[1] * gate.half()
             key = torch.cat((past_key, key), dim=-2)
             value = torch.cat((past_value, value), dim=-2)
 
@@ -659,7 +659,7 @@ class GPTJModel(GPTJPreTrainedModel):
         all_self_attentions = () if output_attentions else None
         all_hidden_states = () if output_hidden_states else None
         # for i, (block, layer_past) in enumerate(zip(self.h, past_key_values)):
-        for i, block in enumerate(self.h): # 修改5
+        for i, block in enumerate(self.h):
             # Model parallel
             if self.model_parallel:
                 torch.cuda.set_device(hidden_states.device)
@@ -693,7 +693,7 @@ class GPTJModel(GPTJPreTrainedModel):
                 )
             else:
 
-                if i>20: # 修改5
+                if i>20: # Select the layers where to add prefix
                     layer_past = past_key_values[i-21]
                 else:
                     layer_past = None
