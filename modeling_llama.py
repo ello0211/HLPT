@@ -26,7 +26,7 @@ import torch.nn.functional as F
 import torch.utils.checkpoint
 from torch import nn
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
-import json # 修改8
+import json #
 from ...activations import ACT2FN
 from ...modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast, SequenceClassifierOutputWithPast
 from ...modeling_utils import PreTrainedModel
@@ -251,7 +251,8 @@ class LlamaAttention(nn.Module):
                 f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
                 f" and `num_heads`: {self.num_heads})."
             )
-        # self.prefix_gate = nn.Linear(self.hidden_size, 1, bias=False)  # 修改3.3
+        # Note that this may slightly increase the number of trainable parameters when using the H2LPT method, but it does not affect the model's performance. This will be optimized later
+        self.prefix_gate = nn.Linear(self.hidden_size, 1, bias=False)  # Add gating units for the prefix.
         self.q_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=False)
         self.k_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
         self.v_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
@@ -317,32 +318,21 @@ class LlamaAttention(nn.Module):
 
         kv_seq_len = key_states.shape[-2]
         if past_key_value is not None:
-            # self.prefix_gate = self.prefix_gate.float()  # 修改3.3
-            # gate = torch.mean(torch.sigmoid(self.prefix_gate(hidden_states.to(self.prefix_gate.weight.dtype))),dim=1).view(-1, 1, 1, 1)  # 修改3.3
+            # compute the gate
+            self.prefix_gate = self.prefix_gate.float()
+            gate = torch.mean(torch.sigmoid(self.prefix_gate(hidden_states.to(self.prefix_gate.weight.dtype))),dim=1).view(-1, 1, 1, 1)
             kv_seq_len += past_key_value[0].shape[-2]
-            cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)  # 修改1
+            cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
         else:
-            cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len + 30)  # 修改1
+            cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len + 30)  # To adapt to the hybrid method,
         # cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
 
         if past_key_value is not None:
             # reuse k, v, self_attention
-            # gate.add_(1) # 修改
-            # gate = gate.half()
-#            save_file = f'experiment/21/0.json'
-#            with open(save_file, 'r') as f: # 修改8
-#                content = json.load(f)
-#                l = len(content)
-#                a = l / 32
-#                if a < 1:
-#                    content.append(torch.mean(gate).item())
-#                else:
-#                    content.append((torch.mean(gate).item() + content[l - 32] * a) / (a + 1))
-#            with open(save_file, 'w+') as f:
-#                json.dump(content, f, indent=4)
-            key_states = torch.cat([past_key_value[0] , key_states], dim=2)  # 修改3.3 多乘了一个gate
-            value_states = torch.cat([past_key_value[1] , value_states], dim=2)
+            gate = gate.half()
+            key_states = torch.cat([past_key_value[0] * gate , key_states], dim=2)  #
+            value_states = torch.cat([past_key_value[1] * gate, value_states], dim=2)
 
         past_key_value = (key_states, value_states) if use_cache else None
 
@@ -360,8 +350,8 @@ class LlamaAttention(nn.Module):
 
         if attention_mask is not None:
             if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
-                attention_mask = attention_mask[:, :, :, 20:]  # 修改1
-            if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):  # 修改1
+                attention_mask = attention_mask[:, :, :, 20:]  # To adapt to the hybrid method,
+            if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
                 raise ValueError(
                     f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}"
                 )
@@ -369,12 +359,9 @@ class LlamaAttention(nn.Module):
 
         # upcast attention to fp32
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-        # print(attn_weights.size()) # 修改1
-        # print(attn_weights.device)
-        # print(value_states.device)
-        # print(value_states.size()) # 修改1
+
         attn_output = torch.matmul(attn_weights, value_states)
-        # print(attn_output.size()) # 修改1
+
 
         if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
             raise ValueError(
@@ -697,14 +684,14 @@ class LlamaModel(LlamaPreTrainedModel):
         all_self_attns = () if output_attentions else None
         next_decoder_cache = () if use_cache else None
 
-        for idx, decoder_layer in enumerate(self.layers):  # 修改1：这里应该加限制条件使其小于5
+        for idx, decoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
-            # past_key_value = past_key_values[idx] if past_key_values is not None else None
-            if idx < 16 :  # 修改1,修改3.3改为>
-                past_key_value = past_key_values[idx] if past_key_values is not None else None
+            # Select the layers where the prefix is added
+            if idx > 23 :
+                past_key_value = past_key_values[idx-24] if past_key_values is not None else None
             else:
-                past_key_value = None  # 修改1
+                past_key_value = None
 
             if self.gradient_checkpointing and self.training:
 
@@ -942,7 +929,7 @@ class LlamaForSequenceClassification(LlamaPreTrainedModel):
         self.num_labels = config.num_labels
         self.model = LlamaModel(config)
         self.score = nn.Linear(config.hidden_size, self.num_labels, bias=False)
-        self.score = self.score.float()  # 修改4
+        self.score = self.score.float()
         # Initialize weights and apply final processing
         self.post_init()
 
@@ -1026,7 +1013,7 @@ class LlamaForSequenceClassification(LlamaPreTrainedModel):
                     loss = loss_fct(pooled_logits, labels)
             elif self.config.problem_type == "single_label_classification":
                 loss_fct = CrossEntropyLoss()
-                loss = loss_fct(pooled_logits.view(-1, self.num_labels), labels.view(-1))  # 修改4，将pooled_logits改为logits
+                loss = loss_fct(pooled_logits.view(-1, self.num_labels), labels.view(-1))  # Change 'pooled_logits' to 'logits'
             elif self.config.problem_type == "multi_label_classification":
                 loss_fct = BCEWithLogitsLoss()
                 loss = loss_fct(pooled_logits, labels)

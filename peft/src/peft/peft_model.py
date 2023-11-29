@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import torch.nn as nn # 修改3.3
+import torch.nn as nn
 import inspect
 import os
 import warnings
@@ -74,11 +74,10 @@ class PeftModel(PushToHubMixin, torch.nn.Module):
         self.config = self.base_model.config
         self.modules_to_save = None
         if isinstance(self.peft_config, PromptLearningConfig):
-            self._setup_prompt_encoder() # prefix在这一步一次获得所有encoder
-            # self.base_model = LoraModel(peft_config, model) # 修改3.2
+            self._setup_prompt_encoder() # At this step, the prefix acquires all encoders at once
         else:
             if self.peft_config.peft_type == PeftType.LORA:
-                self.base_model = LoraModel(peft_config, model) # lora应该是在这一步完成的变化，很关键.model也是在这一步加上了一个loramodel
+                self.base_model = LoraModel(peft_config, model)
             elif self.peft_config.peft_type == PeftType.BOTTLENECK:
                 self.base_model = BottleneckModel(peft_config, model)
         if getattr(self.peft_config, "modules_to_save", None) is not None:
@@ -137,12 +136,12 @@ class PeftModel(PushToHubMixin, torch.nn.Module):
         from .mapping import MODEL_TYPE_TO_PEFT_MODEL_MAPPING, PEFT_TYPE_TO_CONFIG_MAPPING, get_peft_model
 
         # load the config
+        # Here, loading the model for the testing section involves configuring two instances of the PEFT model and loading the trained parameters for both
         config = PEFT_TYPE_TO_CONFIG_MAPPING[PeftConfig.from_pretrained(model_id).peft_type].from_pretrained(model_id)
 
-        config2 = PEFT_TYPE_TO_CONFIG_MAPPING["PREFIX_TUNING"]( # 修改3：针对evaluate
+        config2 = PEFT_TYPE_TO_CONFIG_MAPPING["PREFIX_TUNING"](
             num_virtual_tokens=20,
             task_type="CAUSAL_LM",
-            # task_type="SEQ_CLS", # 修改4
         )
 
         if getattr(model, "hf_device_map", None) is not None:
@@ -151,8 +150,8 @@ class PeftModel(PushToHubMixin, torch.nn.Module):
         if config.task_type not in MODEL_TYPE_TO_PEFT_MODEL_MAPPING.keys():
             model = cls(model, config)
         else:
-            model = get_peft_model(model, config2) # 修改3.2
-            model = MODEL_TYPE_TO_PEFT_MODEL_MAPPING[config.task_type](model, config) # 到这里为止，和训练的样子是一模一样的啊，不知道为什么测试效果下降了
+            model = get_peft_model(model, config2)
+            model = MODEL_TYPE_TO_PEFT_MODEL_MAPPING[config.task_type](model, config)
 
         # load weights if any
         if os.path.exists(os.path.join(model_id, WEIGHTS_NAME)):
@@ -198,8 +197,8 @@ class PeftModel(PushToHubMixin, torch.nn.Module):
     def _setup_prompt_encoder(self):
         transformer_backbone = None
         for name, module in self.base_model.named_children():
-            for param in module.parameters(): # 修改3.3 全都注释掉了
-                param.requires_grad = False # 将原先的所有参数全部冷却 修改1：应该只冷却一部分，这里应该可以参考lora进行层数的判断
+            for param in module.parameters():
+                param.requires_grad = False
             if isinstance(module, PreTrainedModel):
                 # Make sure to freeze Tranformers model
                 if transformer_backbone is None:
@@ -211,7 +210,7 @@ class PeftModel(PushToHubMixin, torch.nn.Module):
                 2 if self.peft_config.task_type == TaskType.SEQ_2_SEQ_LM else 1
             )
 
-        for named_param, value in list(transformer_backbone.named_parameters()): # 获得embedding的tokens
+        for named_param, value in list(transformer_backbone.named_parameters()):
             if value.shape[0] == self.base_model.config.vocab_size:
                 self.word_embeddings = transformer_backbone.get_submodule(named_param.replace(".weight", ""))
                 break
@@ -537,7 +536,8 @@ class PeftModelForCausalLM(PeftModel):
         return_dict=None,
         **kwargs,
     ):
-        if not isinstance(self.peft_config, PromptLearningConfig):  # 修改3：这里lora和prefix不同，可能需要分别处理
+        # During training, the model first obtains the parameters and weights for the LoRa section.
+        if not isinstance(self.peft_config, PromptLearningConfig):
             return self.base_model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -550,7 +550,7 @@ class PeftModelForCausalLM(PeftModel):
             )
 
         batch_size = input_ids.shape[0]
-        if attention_mask is not None:  # 将virtual_token与attention_mask拼接，可能用来将输入变成qkv可以处理的形状.这里可能会对修改3产生问题
+        if attention_mask is not None:  # 将virtual_token与attention_mask拼接，可能用来将输入变成qkv可以处理的形状.
             # concat prompt attention mask
             prefix_attention_mask = torch.ones(batch_size, self.peft_config.num_virtual_tokens).to(self.device)
             attention_mask = torch.cat((prefix_attention_mask, attention_mask), dim=1)
@@ -571,9 +571,10 @@ class PeftModelForCausalLM(PeftModel):
             }
         )
 
-        if self.peft_config.peft_type == PeftType.PREFIX_TUNING: # 修改1：到时候这里要分层的
-            past_key_values = self.get_prompt(batch_size) # 获得加在每一个多头的token
-            return self.base_model(input_ids=input_ids, past_key_values=past_key_values, **kwargs) # 这里进行loss计算,相对于上面少了inputs_embeds
+        # Here, it then obtains the parameters for the prefix section.
+        if self.peft_config.peft_type == PeftType.PREFIX_TUNING:
+            past_key_values = self.get_prompt(batch_size)
+            return self.base_model(input_ids=input_ids, past_key_values=past_key_values, **kwargs)
         else:
             if inputs_embeds is None:
                 inputs_embeds = self.word_embeddings(input_ids)
@@ -587,10 +588,11 @@ class PeftModelForCausalLM(PeftModel):
             return self.base_model(inputs_embeds=inputs_embeds, **kwargs)
 
     def generate(self, **kwargs):
+        # During testing, similarly, the LoRa section is handled first before the prefix section.
         self.base_model.prepare_inputs_for_generation = self.prepare_inputs_for_generation
         try:
             if not isinstance(self.peft_config, PromptLearningConfig):
-                outputs = self.base_model.generate(**kwargs)  # evaluate从此处进入
+                outputs = self.base_model.generate(**kwargs)
             else:
                 if "input_ids" not in kwargs:
                     raise ValueError("input_ids must be provided for Peft model generation")

@@ -19,13 +19,13 @@ import warnings
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import List, Optional, Union
-import json # 修改8
+import json
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers.pytorch_utils import Conv1D
 
-from ..utils import PeftConfig, PeftType, transpose ,PromptLearningConfig # 修改3.2 加了prompt_config
+from ..utils import PeftConfig, PeftType, transpose ,PromptLearningConfig
 
 
 def is_bnb_available():
@@ -37,7 +37,7 @@ if is_bnb_available():
 
 
 @dataclass
-class LoraConfig(PeftConfig): # 修改3.2 将PeftConfig改成了PromptLearningConfig
+class LoraConfig(PeftConfig):
     """
     This is the configuration class to store the configuration of a [`~peft.Lora`].
 
@@ -62,7 +62,7 @@ class LoraConfig(PeftConfig): # 修改3.2 将PeftConfig改成了PromptLearningCo
     prefix_projection: bool = field(
         default=False,
         metadata={"help": "Whether to project the prefix tokens"},
-    ) # 修改3.2
+    ) 
     '''
     r: int = field(default=8, metadata={"help": "Lora attention dimension"})
     target_modules: Optional[Union[List[str], str]] = field(
@@ -93,7 +93,6 @@ class LoraConfig(PeftConfig): # 修改3.2 将PeftConfig改成了PromptLearningCo
     )
 
     def __post_init__(self):
-        # self.peft_type = PeftType.PREFIX_TUNING # 修改3.2
         self.peft_type = PeftType.LORA
 
 
@@ -150,23 +149,19 @@ class LoraModel(torch.nn.Module):
         for key in key_list:
             if isinstance(self.peft_config.target_modules, str):
                 target_module_found = re.fullmatch(self.peft_config.target_modules, key)
-            else: # 修改2,改变深浅层加的不同位置
+            else: # Changing the positions where layers of different depths are added
 
-                if len(key.split(".")) > 3 and int(key.split(".")[3]) > 8:  # 修改3：这里变成base_model了，2变成3
-                    # self.peft_config.target_modules = ["q_proj", "v_proj"]
-                    # target_module_found = any(key.endswith(target_key) for target_key in self.peft_config.target_modules)
-                    target_module_found = False # 修改3
+                if len(key.split(".")) > 3 and int(key.split(".")[3]) > 23:
+                    target_module_found = False
                 else :
-                    # self.peft_config.target_modules = ["gate_proj", "up_proj", "down_proj"]
-                    self.peft_config.target_modules = ["down_proj"] # 修改3
-                    # self.peft_config.target_modules = ["fc_out"] # 修改5
+                    self.peft_config.target_modules = ["down_proj"]
                     target_module_found = any(key.endswith(target_key) for target_key in self.peft_config.target_modules)
 
                 # target_module_found = any(key.endswith(target_key) for target_key in self.peft_config.target_modules)
             if target_module_found:
                 if not is_target_modules_in_base_model:
                     is_target_modules_in_base_model = True
-                parent, target, target_name = self._get_submodules(key) # parent对应该层所有的qkvo，target对应具体的层本来的样子
+                parent, target, target_name = self._get_submodules(key)
                 bias = target.bias is not None
                 if loaded_in_8bit and isinstance(target, bnb.nn.Linear8bitLt):
                     kwargs.update(
@@ -182,7 +177,7 @@ class LoraModel(torch.nn.Module):
                     else:
                         kwargs.update({"enable_lora": self.peft_config.enable_lora})
                         new_module = MergedLinear8bitLt(target.in_features, target.out_features, bias=bias, **kwargs)
-                elif isinstance(target, torch.nn.Linear) and self.peft_config.enable_lora is None: # 这里q_proj 就是线性的
+                elif isinstance(target, torch.nn.Linear) and self.peft_config.enable_lora is None:
                     new_module = Linear(target.in_features, target.out_features, key, bias=bias, **kwargs)
                 elif self.peft_config.enable_lora is not None:
                     kwargs.update({"enable_lora": self.peft_config.enable_lora})
@@ -207,14 +202,14 @@ class LoraModel(torch.nn.Module):
             )
 
     def _get_submodules(self, key):
-        parent = self.model.get_submodule(".".join(key.split(".")[:-1])) # 这里ffn刚好和atten对应，应该也不需要修改
+        parent = self.model.get_submodule(".".join(key.split(".")[:-1]))
         target_name = key.split(".")[-1]
         target = self.model.get_submodule(key)
         return parent, target, target_name
 
     def _replace_module(self, parent_module, child_name, new_module, old_module):
         setattr(parent_module, child_name, new_module) # 使用new_module替换掉parent_module中原来的部分
-        new_module.weight = old_module.weight # 那之前重置参数还有什么意义呢，可能是我还没有看懂，到时候再看看，也可以当作黑盒就不管了，按理说就是应该按照old来啊
+        new_module.weight = old_module.weight
         if old_module.bias is not None:
             new_module.bias = old_module.bias
         if getattr(old_module, "state", None) is not None:
@@ -222,7 +217,7 @@ class LoraModel(torch.nn.Module):
             new_module.to(old_module.weight.device)
 
         # dispatch to correct device
-        for name, module in new_module.named_modules(): # 问题是new_module 过一会儿就没了啊
+        for name, module in new_module.named_modules():
             if "lora_" in name:
                 module.to(old_module.weight.device)
 
@@ -267,11 +262,12 @@ class LoraModel(torch.nn.Module):
 
 # had to adapt it for `lora_only` to work
 def mark_only_lora_as_trainable(model: nn.Module, bias: str = "none") -> None:
+    # Configure trainable parameters.
     for n, p in model.named_parameters():
-        # if "lora_" not in n:  # 从这里可以看出来，实际上原先的参数是没有变化的
+        # if "lora_" not in n:
         if "prefix_gate" in n:
             p.requires_grad = True
-        if p.requires_grad: # 修改3:实际上，我现在觉得甚至可以直接把这部分删去，因为本身
+        if p.requires_grad:
             # print(n)
             if "lora_" not in n and "prompt" not in n and "prefix_gate" not in n:
                 p.requires_grad = False
@@ -318,7 +314,6 @@ class Linear(nn.Linear, LoraLayer):
         self,
         in_features: int,
         out_features: int,
-        key,  # 修改6
         r: int = 0,
         lora_alpha: int = 1,
         lora_dropout: float = 0.0,
@@ -337,22 +332,22 @@ class Linear(nn.Linear, LoraLayer):
             self.scaling = self.lora_alpha / self.r
             # Freezing the pre-trained weight matrix
             self.weight.requires_grad = False
-        self.reset_parameters() # 重置weight，并对lorab的参数置0
+        self.reset_parameters()
         if fan_in_fan_out:
             self.weight.data = self.weight.data.T
-        self.lora_gate = nn.Linear(in_features, 1, bias=False)  # 修改3.3
+        self.lora_gate = nn.Linear(in_features, 1, bias=False)  # Add gating units for lora
         '''
         if len(key.split(".")) > 3 and int(key.split(".")[3]) > 10:
-            self.lora_gate = nn.Linear(in_features, 1, bias=False) # 修改3.3
+            self.lora_gate = nn.Linear(in_features, 1, bias=False) 
         else:
             self.lora_gate = None
         '''
 
     def reset_parameters(self):
-        nn.Linear.reset_parameters(self)  # 对原先的weight权重进行了更新
+        nn.Linear.reset_parameters(self)
         if hasattr(self, "lora_A"):
             # initialize A the same way as the default for nn.Linear and B to zero
-            nn.init.kaiming_uniform_(self.lora_A.weight, a=math.sqrt(5)) #kaiming 均值初始化，此处和transformer一致
+            nn.init.kaiming_uniform_(self.lora_A.weight, a=math.sqrt(5))
             nn.init.zeros_(self.lora_B.weight)
 
     def train(self, mode: bool = True):
@@ -391,31 +386,11 @@ class Linear(nn.Linear, LoraLayer):
             result = F.linear(x, transpose(self.weight, self.fan_in_fan_out), bias=self.bias)
         elif self.r > 0 and not self.merged:
             result = F.linear(x, transpose(self.weight, self.fan_in_fan_out), bias=self.bias)
-            # result += self.lora_B(self.lora_A(self.lora_dropout(x.to(self.lora_A.weight.dtype)))) * self.scaling
-            lora_gate = torch.sigmoid(self.lora_gate(x.to(self.lora_A.weight.dtype)))  # 修改3.3
-            lora_gate = torch.mean(lora_gate, dim=1).unsqueeze(-1)  # 修改3.3 可以再试一下sqrt减少影响
-            # save_file = f'experiment/21/0.json'
-            # with open(save_file, 'w+') as f:
-            #     json.dump(lora_gate, f, indent=4)
+            lora_gate = torch.sigmoid(self.lora_gate(x.to(self.lora_A.weight.dtype)))
+            lora_gate = torch.mean(lora_gate, dim=1).unsqueeze(-1)
+            # Compute "lora_gate"
             result += self.lora_B(self.lora_A(self.lora_dropout(x.to(self.lora_A.weight.dtype)))) * self.scaling * lora_gate
-#            with open(save_file, 'r') as f:
-#                content = json.load(f)
-#                l = len(content)
-#                a = l / 32
-#                if a < 1:
-#                    content.append(torch.mean(lora_gate).item())
-#                else:
-#                    content.append((torch.mean(lora_gate).item() + content[l - 32] * a) / (a + 1))
-#            with open(save_file, 'w+') as f:
-#                json.dump(content, f, indent=4)
-            '''
-            if self.r > 0 and self.lora_gate: # 修改6：加上了lora_gate的判断
-                lora_gate = torch.sigmoid(self.lora_gate(x.to(self.lora_A.weight.dtype))) # 修改3.3
-                lora_gate = torch.mean(lora_gate, dim=1).unsqueeze(-1) # 修改3.3 可以再试一下sqrt减少影响
-                result += self.lora_B(self.lora_A(self.lora_dropout(x.to(self.lora_A.weight.dtype)))) * self.scaling * lora_gate
-            elif self.r>0 : # 修改6：
-                result += self.lora_B(self.lora_A(self.lora_dropout(x.to(self.lora_A.weight.dtype)))) * self.scaling
-            '''
+
         else:
              result = F.linear(x, transpose(self.weight, self.fan_in_fan_out), bias=self.bias)
 

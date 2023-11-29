@@ -35,7 +35,8 @@ def get_peft_model_state_dict(model, state_dict=None):
         # to directly with the state dict which is necessary when using DeepSpeed or FSDP
         bias = model.peft_config.bias
         if bias == "none":
-            # to_return = {k: state_dict[k] for k in state_dict if "lora_" in k} # 修改3，这里的参数可能也需要改一下，加上prefix的
+            # Determine to save the trained trainable parameters.
+            # to_return = {k: state_dict[k] for k in state_dict if "lora_" in k} #
             to_return = {k: state_dict[k] for k in state_dict if "lora_" in k or "prompt_encoder.embedding" in k or "prefix_gate" in k or "score" in k}
         elif bias == "all":
             to_return = {k: state_dict[k] for k in state_dict if "lora_" in k or "bias" in k}
@@ -68,7 +69,7 @@ def get_peft_model_state_dict(model, state_dict=None):
             raise NotImplementedError
     else:
         # to_return = {}
-        to_return = {k: state_dict[k] for k in state_dict if "lora_" in k} # 修改3.2
+        to_return = {k: state_dict[k] for k in state_dict if "lora_" in k}
         if model.peft_config.inference_mode:
             prompt_embeddings = model.prompt_encoder.embedding.weight
         else:
