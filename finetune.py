@@ -1,9 +1,9 @@
 import os
 import sys
-import random # 修改6
+import random #
 from typing import List
 
-import numpy as np # 修改6
+import numpy as np #
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 import fire
@@ -29,7 +29,8 @@ from peft import (  # noqa: E402
 )
 from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaTokenizer, AutoModel, \
     AutoModelForSequenceClassification  # noqa: F402
-# 修改6
+
+# Set the random seed to 42 to ensure reproducibility
 RANDOM_SEED = 42 # any random number
 def set_seed(seed):
     random.seed(seed)
@@ -37,9 +38,9 @@ def set_seed(seed):
     torch.manual_seed(seed)  # CPU
     torch.cuda.manual_seed(seed)  # GPU
     torch.cuda.manual_seed_all(seed)  # All GPU
-    os.environ['PYTHONHASHSEED'] = str(seed)  # 禁止hash随机化
-    torch.backends.cudnn.deterministic = True  # 确保每次返回的卷积算法是确定的
-    torch.backends.cudnn.benchmark = False  # True的话会自动寻找最适合当前配置的高效算法，来达到优化运行效率的问题。False保证实验结果可复现
+    os.environ['PYTHONHASHSEED'] = str(seed)  # Disable hash randomization
+    torch.backends.cudnn.deterministic = True  # Ensure that the convolution algorithm returned is deterministic each time
+    torch.backends.cudnn.benchmark = False  # Ensure reproducibility of experimental results
 set_seed(RANDOM_SEED)
 
 def train(
@@ -139,7 +140,6 @@ def train(
         os.environ["WANDB_WATCH"] = wandb_watch
     if len(wandb_log_model) > 0:
         os.environ["WANDB_LOG_MODEL"] = wandb_log_model
-    # base_model = './models/gpt-j-6b'  # 修改
     # 1.这里开始加载模型
     if load_8bit:
         model = AutoModelForCausalLM.from_pretrained(
@@ -151,7 +151,6 @@ def train(
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(
-            # model = AutoModelForSequenceClassification.from_pretrained( # 修改4：改变模型获得预训练的权重
             base_model,
             load_in_8bit=False,
             torch_dtype=torch.float16,
@@ -197,8 +196,8 @@ def train(
             return result
 
     def generate_and_tokenize_prompt(data_point):
-        full_prompt = generate_prompt(data_point)  # 对训练数据进行补充，变成full_prompt的形式
-        tokenized_full_prompt = tokenize(full_prompt)  # 这里返回的数据中，label和input是一致的
+        full_prompt = generate_prompt(data_point)
+        tokenized_full_prompt = tokenize(full_prompt)
         if not train_on_inputs:
             user_prompt = generate_prompt({**data_point, "output": ""})
             tokenized_user_prompt = tokenize(user_prompt, add_eos_token=False)
@@ -212,7 +211,7 @@ def train(
         return tokenized_full_prompt
 
     model = prepare_model_for_int8_training(model, use_gradient_checkpointing=use_gradient_checkpointing)
-    # 3.配置adapter的config,这里对所选择的方法进行了判断。 修改1：应该保留2中config，分别设为config1和config2
+    # 3.配置adapter的config,这里对所选择的方法进行了判断。
     if adapter_name == "lora":
         config = LoraConfig(
             r=lora_r,
@@ -221,7 +220,6 @@ def train(
             lora_dropout=lora_dropout,
             bias="none",
             task_type="CAUSAL_LM",
-            # task_type="SEQ_CLS", # 修改4
         )
     elif adapter_name == "bottleneck":
         config = BottleneckConfig(
@@ -240,30 +238,31 @@ def train(
             num_virtual_tokens=num_virtual_tokens,
             task_type="CAUSAL_LM",
         )
-    elif adapter_name == "hybrid":  # 修改3
+    elif adapter_name == "hybrid":  # Configure the 'hybrid' parameter. Here, we configure two different types of PEFT separately
         config1 = LoraConfig(
             r=lora_r,
-            # r=1,
-            lora_alpha=lora_alpha,  # 修改3.3，改成24试一试
+            lora_alpha=lora_alpha,
             target_modules=target_modules,
             lora_dropout=lora_dropout,
             bias="none",
             task_type="CAUSAL_LM",
-            # task_type="SEQ_CLS", # 修改4
-            # num_virtual_tokens=20 # 修改3.2
         )
         config2 = PrefixTuningConfig(
             num_virtual_tokens=20,
             task_type="CAUSAL_LM",
-            # task_type="SEQ_CLS", # 修改4
         )
+        # 4.
+        # Two PEFT models are configured here, corresponding to a nested structure of two layers of peft_model.
+        # Please note that the second configuration does not overwrite the first one.
+        # During training and testing, we will handle the two instances of peft_model accordingly.
         model = get_peft_model(model, config2)
-        model = get_peft_model(model, config1)  # 应该看一下是何时打上的lora标签，修改一下
+        model = get_peft_model(model, config1)
         model.to('cuda')
-    # 4.针对所选择的PEFT方法对模型进行改造，这之后已经完成了改造，如果要更改的话，可能需要从想办法改一下源文件（可能也并不需要，没有那么底层）
-    # model = get_peft_model(model, config)  # 修改3
+
+    # model = get_peft_model(model, config)
     if adapter_name == "prefix-tuning":
         model.to('cuda')
+
     # 5.准备数据
 
     if data_path.endswith(".json"):  # todo: support jsonl
@@ -271,7 +270,7 @@ def train(
     else:
         data = load_dataset(data_path)
 
-    # datasets = load_dataset("glue", 'cola') # 修改4： 尝试新的数据
+
 
     if resume_from_checkpoint:
         # Check the available weights and load them
@@ -293,12 +292,11 @@ def train(
         else:
             print(f"Checkpoint {checkpoint_name} not found")
 
-    model.print_trainable_parameters()  # Be more transparent about the % of trainable params.# 这一步分母把lora也算上了
+    model.print_trainable_parameters()  # Be more transparent about the % of trainable params.
     # 6.对数据进行训练和验证集分类，并完成tokenizer
-    # 修改4
     if val_set_size > 0:
-        data = data["train"].shuffle(seed=42).select(range(1120)) # 修改7
-        train_val = data.train_test_split( # 修改7
+        # data = data["train"].shuffle(seed=42).select(range(1120)) # Randomly select a subset of data with seed=42
+        train_val = data["train"].train_test_split(
             test_size=val_set_size, shuffle=True, seed=42
         )
         train_data = (
@@ -315,44 +313,6 @@ def train(
         # keeps Trainer from trying its own DataParallelism when more than 1 gpu is available
         model.is_parallelizable = True
         model.model_parallel = True
-    '''
-    # 修改4
-    label_list = datasets["train"].features["label"].names
-    num_labels = len(label_list)
-    sentence1_key, sentence2_key = ("sentence", None)
-
-    # Padding strategy
-    padding = "max_length"
-
-    # Some models have set the order of the labels to use, so let's make sure we do use it.
-    label_to_id = None
-
-    max_seq_length = min(128, tokenizer.model_max_length)
-    def preprocess_function(examples):
-        # Tokenize the texts
-        args = (
-            (examples[sentence1_key],) if sentence2_key is None else (examples[sentence1_key], examples[sentence2_key])
-        )
-        result = tokenizer(*args, padding=padding, max_length=max_seq_length, truncation=True)
-        # print('#'*20)
-        # print(result.keys())
-        # Map labels to IDs (not necessary for GLUE tasks)
-        # print(examples)
-        if label_to_id is not None and "label" in examples:
-            result["label"] = [(label_to_id[l] if l != -1 else -1) for l in examples["label"]]
-            print(result["label"])
-        # result["labels"] = result["label"]
-        # del result["label"]
-        return result
-
-    datasets = datasets.map(preprocess_function, batched=True, load_from_cache_file=not False)
-    train_data = datasets["train"]
-    val_data = datasets["validation"]
-    train_data=train_data.add_column('labels', train_data['label'])
-    train_data = train_data.remove_columns('label')
-    val_data=val_data.add_column('labels', val_data['label'])
-    val_data = val_data.remove_columns('label')
-    '''  # 修改4
 
     # 7.开始训练
     trainer = transformers.Trainer(
@@ -394,7 +354,7 @@ def train(
     ).__get__(model, type(model))
 
     if torch.__version__ >= "2" and sys.platform != "win32":
-        model = torch.compile(model)  # 用来加快运算速度
+        model = torch.compile(model)  # Used to accelerate computational speed
 
     trainer.train(resume_from_checkpoint=resume_from_checkpoint)
 
